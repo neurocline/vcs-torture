@@ -16,49 +16,58 @@ import (
 	"vcs-torture/vcs"
 )
 
+// main parses all the command-line arguments, running in
+// groups, one group for each distinct command
 func main() {
-	args := parseArgs()
-	args.Run()
+	cmd := &Command{args: os.Args[1:]}
+	for len(cmd.args) > 0 {
+		cmd.Op = ""
+		cmd.args = cmd.parse()
+		cmd.Run()
+	}
 }
 
 // ----------------------------------------------------------------------------------------------
 
-func (args *CmdArgs) Run() {
+func (cmd *Command) Run() {
 
-	if args.Create {
-		args.mustHaveDest()
-		args.mustHaveRepo()
-		args.mustHaveVcs()
+	if cmd.Op == "create" {
+		cmd.mustHaveDest()
+		cmd.mustHaveRepo()
+		cmd.mustHaveVcs()
 
-		repo := vcs.NewRepo(args.Dest, args.Repo, args.Vcs)
-		repo.SetVerbose(args.Verbose)
+		repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs)
+		repo.SetVerbose(cmd.Verbose)
 		if !repo.Create() {
 			log.Fatalf("Couldn't create repo\n")
 		}
 	}
 }
 
-func (args *CmdArgs) mustHaveDest() {
-	if args.Dest == "" {
+func (cmd *Command) mustHaveDest() {
+	if cmd.Dest == "" {
 		log.Fatalf("Specify work area with --dest")
 	}
 }
 
-func (args *CmdArgs) mustHaveRepo() {
-	if args.Repo == "" {
+func (cmd *Command) mustHaveRepo() {
+	if cmd.Repo == "" {
 		log.Fatalf("Specify repo name with --repo")
 	}
 }
 
-func (args *CmdArgs) mustHaveVcs() {
-	if args.Vcs == "" {
+func (cmd *Command) mustHaveVcs() {
+	if cmd.Vcs == "" {
 		log.Fatalf("Specify version control system with --vcs")
 	}
 }
 
 // ----------------------------------------------------------------------------------------------
 
-type CmdArgs struct {
+type Command struct {
+	// Op is what we are doing (create, add, ...)
+	Op string
+
 	// Dest points to our working area
 	Dest string
 
@@ -73,34 +82,37 @@ type CmdArgs struct {
 
 	Help    bool
 	Verbose bool
+
+	// remaining command-line arguments
+	args []string
+	print bool
 }
 
 func usage(fail int) {
-	fmt.Printf("Usage: perf [--vcs=<vcs-name>]\n" +
+	fmt.Printf("Usage: vcs=torture [--vcs=<vcs-name>]\n" +
 		       "            [-v|--verbose] [-h|--help]\n")
 	os.Exit(fail)
 }
 
-// Process command-line
-func parseArgs() *CmdArgs {
-	p := &CmdArgs{}
-	p.parse(os.Args[1:])
-
-	if p.Help {
-		usage(0)
+func (cmd *Command) parse() []string {
+	if cmd.Verbose {
+		fmt.Printf("enter cmd.args=%s\n", cmd.args)
 	}
 
-	return p
-}
-
-func (p *CmdArgs) parse(args []string) {
-	for _, arg := range args {
+	// since some operations can change the arg list,
+	// iterate through by hand
+	i := 0
+	for i < len(cmd.args) {
+		arg := cmd.args[i]
+		i++
 
 		parsersp := func() bool {
 			if len(arg) < 2 || arg[0] != '@' {
 				return false
 			}
-			return p.parseResponse(arg[1:])
+			response := cmd.parseResponse(arg[1:])
+			cmd.args = append(cmd.args[:i], append(response, cmd.args[i:]...)...)
+			return true
 		}
 		parsearg := func(opt string, val *string) bool {
 			optlen := len(opt)
@@ -119,28 +131,45 @@ func (p *CmdArgs) parse(args []string) {
 		}
 
 		if !parsersp() &&
-		    !parsearg("--dest=", &p.Dest) &&
-		    !parsearg("--repo=", &p.Repo) &&
-			!parsebool("--create", &p.Create) &&
-		    !parsearg("--vcs=", &p.Vcs) &&
-			!parsebool("-v", &p.Verbose) &&
-			!parsebool("--verbose", &p.Verbose) &&
-			!parsebool("-h", &p.Help) &&
-			!parsebool("--help", &p.Help) {
+		    !parsearg("--dest=", &cmd.Dest) &&
+		    !parsearg("--repo=", &cmd.Repo) &&
+			!parsearg("--op=", &cmd.Op) &&
+		    !parsearg("--vcs=", &cmd.Vcs) &&
+			!parsebool("--print", &cmd.print) &&
+			!parsebool("-v", &cmd.Verbose) &&
+			!parsebool("--verbose", &cmd.Verbose) &&
+			!parsebool("-h", &cmd.Help) &&
+			!parsebool("--help", &cmd.Help) {
 			usage(1)
 		}
+
+		if cmd.Op != "" {
+			break
+		}
+
+		if cmd.Help {
+			usage(0)
+		}
+
+		if cmd.print && cmd.Verbose {
+			fmt.Printf("(print) i=%d cmd.args=%s\n", i, cmd.args)
+			cmd.print = false
+		}
 	}
+
+	if cmd.Verbose {
+		fmt.Printf("exit cmd.args=%s\n", cmd.args[i:])
+	}
+	return cmd.args[i:]
 }
 
-// Given @<response-file>, open file <response-file>
-// and parse its lines as if they were command-line arguments,
-// one per line
-func (p *CmdArgs) parseResponse(responsePath string) bool {
+// Given @<response-file>, open file <response-file> and add
+// its lines to args; we assume each line is a single arg
+func (p *Command) parseResponse(responsePath string) []string {
 	args, err := gsos.FileReadLines(responsePath)
 	if err != nil {
 		usage(1)
 	}
 
-	p.parse(args)
-	return true
+	return args
 }
