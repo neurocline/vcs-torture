@@ -1,0 +1,5 @@
+--dest=C:\projects\test
+--vcs=hg
+--repo=repo
+--op=create
+--op=remove

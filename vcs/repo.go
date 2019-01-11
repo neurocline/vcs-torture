@@ -33,6 +33,11 @@ func NewRepo(dest string, repoName string, vcs string) *Repo {
 	return r
 }
 
+func DeleteRepo(dest string, repoName string, vcs string) bool {
+	err := os.RemoveAll(filepath.Join(dest, repoName))
+	return err == nil
+}
+
 func (r *Repo) SetVerbose(verbose bool) {
 	r.verbose = true
 }

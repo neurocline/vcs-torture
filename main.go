@@ -41,6 +41,14 @@ func (cmd *Command) Run() {
 		if !repo.Create() {
 			log.Fatalf("Couldn't create repo\n")
 		}
+	} else if cmd.Op == "remove" {
+		cmd.mustHaveDest()
+		cmd.mustHaveRepo()
+		if !vcs.DeleteRepo(cmd.Dest, cmd.Repo, cmd.Vcs) {
+			log.Fatalf("Couldn't remove repo\n")
+		}
+	} else {
+		log.Fatalf("Unknown op: %s\n", cmd.Op)
 	}
 }
 
@@ -77,9 +85,6 @@ type Command struct {
 	// Repo is the path to the repo to work on
 	Repo string
 
-	// Create will make sure a repo exists
-	Create bool
-
 	Help    bool
 	Verbose bool
 
@@ -94,8 +99,10 @@ func usage(fail int) {
 	os.Exit(fail)
 }
 
+const parseDiagnostic = false
+
 func (cmd *Command) parse() []string {
-	if cmd.Verbose {
+	if parseDiagnostic && cmd.Verbose {
 		fmt.Printf("enter cmd.args=%s\n", cmd.args)
 	}
 
@@ -151,13 +158,13 @@ func (cmd *Command) parse() []string {
 			usage(0)
 		}
 
-		if cmd.print && cmd.Verbose {
+		if parseDiagnostic && cmd.print && cmd.Verbose {
 			fmt.Printf("(print) i=%d cmd.args=%s\n", i, cmd.args)
 			cmd.print = false
 		}
 	}
 
-	if cmd.Verbose {
+	if parseDiagnostic && cmd.Verbose {
 		fmt.Printf("exit cmd.args=%s\n", cmd.args[i:])
 	}
 	return cmd.args[i:]

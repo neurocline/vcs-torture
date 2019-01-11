@@ -56,7 +56,7 @@ func lookupPath(exe string) string {
 	var err error
 	exePath, err = exec.LookPath(exe)
 	if err != nil {
-		log.Fatalf("Not found: %s\n", exe)
+		log.Fatalf("Not installed: %s\n", exe)
 	}
 	commandPaths[exe] = exePath
 	return exePath
