@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 )
 
 func DataToLines(data []byte) []string {
@@ -57,4 +59,38 @@ func FileReadLines(path string) (lines []string, err error) {
 	}
 	err = fs.Err()
 	return
+}
+
+type PeriodicStatus struct {
+	startTime time.Time
+	lastStatus time.Time
+	delta time.Duration
+	cols int
+}
+
+func NewPeriodicStatus(startTime time.Time, delta time.Duration, cols int) *PeriodicStatus {
+	if delta <= 0 {
+		delta = 100*time.Millisecond
+	}
+	if cols <= 0 {
+		cols = 100
+	}
+	s := &PeriodicStatus{startTime: startTime, lastStatus: time.Now(), delta: delta, cols: cols}
+	return s
+}
+
+func (s *PeriodicStatus) Ready() bool {
+	return time.Since(s.lastStatus) >= s.delta
+}
+
+func (s *PeriodicStatus) Show(prompt string) {
+	out := fmt.Sprintf("T+%.2f: %s", time.Since(s.startTime).Seconds(), prompt)
+
+	padlen := s.cols - 1 - len(out)
+	if padlen > 0 {
+		out = out + strings.Repeat(" ", padlen)
+	}
+
+	fmt.Fprintf(os.Stderr, "\r%s", out)
+	s.lastStatus = time.Now()
 }

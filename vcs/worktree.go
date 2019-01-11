@@ -4,52 +4,111 @@ package vcs
 
 import (
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 // Worktree manages the files that can be added to a repository
 // This generates a consistent but unique pathname
 type Worktree struct {
+	verbose bool
+
 	root string
 	numFiles int
 	filesPerDir int
 	dirsPerDir int
+	fileSize int
 
 	nthUniqueName int
+	nthContent int
+
 	files []string
 	dirs map[string]int
 	dirplace []int
 }
 
-func (w *Worktree) Generate(callback func(i int, total int) bool) bool {
+func NewWorktree(root string, numFiles int, filesPerDir int, dirsPerDir int, fileSize int) *Worktree {
+	if numFiles == 0 {
+		numFiles = 1000
+	}
+	if filesPerDir == 0 {
+		filesPerDir = 48
+	}
+	if dirsPerDir == 0 {
+		dirsPerDir = 16
+	}
+	if fileSize == 0 {
+		fileSize = 10000
+	}
+	w := &Worktree{root:root, numFiles: numFiles, filesPerDir: filesPerDir, dirsPerDir: dirsPerDir, fileSize: fileSize}
+	return w
+}
+
+func (w *Worktree) SetVerbose(verbose bool) {
+	w.verbose = true
+}
+
+type WorktreeCallbackData struct {
+	Done bool
+	Pos int
+	NumFiles int
+	Path string
+}
+
+func (w *Worktree) Generate(callback func(cb *WorktreeCallbackData) bool) bool {
 	w.files = make([]string, 0, w.numFiles)
 	w.dirs = make(map[string]int)
+
+	var cb WorktreeCallbackData
+	cb.NumFiles = w.numFiles
 
 	// Create our directory generator
 	w.dirplace = make([]int, 1, 6)
 	w.dirplace[0] = 0
 
 	// Create the paths where we will put files
-	for i := 0; i < w.numFiles; i++ {
+	for cb.Pos = 0; cb.Pos < w.numFiles; cb.Pos++ {
 		fname := w.uniqueName()
 		dirpath := w.getDir()
 
-		// Remember the dir (if there is one)
-		path := fname
-		if dirpath != "" {
+		// If we have a new dir, create it
+		if _, ok := w.dirs[dirpath]; !ok {
 			w.dirs[dirpath] = 1
-			path = dirpath + "/" + fname
+			os.MkdirAll(filepath.Join(w.root, dirpath), os.ModePerm)
 		}
 
-		// Remember this file
-		w.files = append(w.files, path)
+		// Build the path (dir + name)
+		cb.Path = fname
+		if dirpath != "" {
+			w.dirs[dirpath] = 1
+			cb.Path = dirpath + "/" + fname
+		}
 
-		if callback != nil && callback(i, w.numFiles) {
+		// Make this file if it doesn't already exist
+		w.files = append(w.files, cb.Path)
+
+		fpath := filepath.Join(w.root, cb.Path)
+		if _, err := os.Stat(fpath); err == nil {
+			w.nthContent += 1
+		} else {
+			content := w.makeContent(w.fileSize)
+			err := ioutil.WriteFile(fpath, content, os.ModePerm)
+			if err != nil {
+				log.Fatalf("\nCouldn't write %s: %s\n", fpath, err)
+			}
+		}
+
+		if callback != nil && callback(&cb) {
 			break
 		}
 	}
 
-	return callback == nil || callback(w.numFiles, w.numFiles)
+	cb.Done = true
+	return callback == nil || !callback(&cb)
 }
 
 // Make a unique name (encoding a unique number)
@@ -102,4 +161,52 @@ func (w *Worktree) getDir() string {
 	}
 
 	return dirpath
+}
+
+// Make unique content of the specified size.
+var contentAtoms []string = []string{
+	"include", "for", "each", "int", "call", "lang", "operation", "overflow",
+	"add", "multiply", "sub", "divide", "float", "array", "{", "}",
+	"goto", "return", "range", "make", "byte", "var", "sizeof", "sink",
+	"[", "]", "(", ")", "append", "copy", ":=", "==",
+}
+func (w *Worktree) makeContent(size int) []byte {
+	nth := w.nthContent
+	w.nthContent += 1
+
+	crlf := false
+	if runtime.GOOS == "windows" {
+		crlf = true
+	}
+
+	content := make([]byte, size)
+	col := 0
+	for i := 0; i < size; {
+		if col >= 100 && i < size {
+			if crlf {
+				content[i-2] = '\r'
+			}
+			content[i-1] = '\n'
+			col = 0
+		}
+		var token []byte = []byte(contentAtoms[nth & 31] + " ")
+		nth = ((nth << 27) | (nth >> 5)) + nth + 13
+		L := len(token)
+		if i+L > size {
+			L = size - i
+		}
+		copy(content[i:i+L], token[:L])
+		i += L
+		col += L
+	}
+
+	if crlf {
+		content[size-2] = '\r'
+	}
+	content[size-1] = '\n'
+
+	if len(content) != size {
+		log.Fatalf("Oops: %s\n", string(content))
+	}
+	return content
 }

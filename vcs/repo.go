@@ -26,15 +26,19 @@ type Repo struct {
 	numHeadFiles int
 }
 
-func NewRepo(dest string, repoName string, vcs string) *Repo {
+func NewRepo(dest string, repoName string, vcs string, startTime time.Time) *Repo {
 	r := &Repo{dest: dest, repoName: repoName, vcs: vcs}
 	r.repo = filepath.Join(dest, repoName)
 	if r.vcs == "svn" {
 		r.server = fmt.Sprintf("file:///%s-svnrepo", r.repo)
 	}
-	r.startTime = time.Now()
+	r.startTime = startTime
 
 	return r
+}
+
+func (r *Repo) GetRepo() string {
+	return r.repo
 }
 
 // DeleteRepo removes the repo (and associated data, e.g the actual repo

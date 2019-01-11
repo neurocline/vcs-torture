@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	"vcs-torture/gsos"
 	"vcs-torture/vcs"
@@ -20,6 +22,8 @@ import (
 // groups, one group for each distinct command
 func main() {
 	cmd := &Command{args: os.Args[1:]}
+	cmd.startTime = time.Now()
+
 	for len(cmd.args) > 0 {
 		cmd.Op = ""
 		cmd.args = cmd.parse()
@@ -30,22 +34,54 @@ func main() {
 // ----------------------------------------------------------------------------------------------
 
 func (cmd *Command) Run() {
+	if parseDiagnostic && cmd.Verbose {
+		fmt.Printf("cmd: %+v\n", cmd)
+	}
+
+	cmd.mustHaveDest()
+	cmd.mustHaveRepo()
+	cmd.mustHaveVcs()
+	if cmd.Verbose {
+		fmt.Printf("op=%s\n", cmd.Op)
+	}
 
 	if cmd.Op == "create" {
-		cmd.mustHaveDest()
-		cmd.mustHaveRepo()
-		cmd.mustHaveVcs()
-
-		repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs)
+		repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime)
 		repo.SetVerbose(cmd.Verbose)
 		if !repo.Create() {
 			log.Fatalf("Couldn't create repo\n")
 		}
 	} else if cmd.Op == "remove" {
-		cmd.mustHaveDest()
-		cmd.mustHaveRepo()
 		if !vcs.DeleteRepo(cmd.Dest, cmd.Repo, cmd.Vcs) {
 			log.Fatalf("Couldn't remove repo\n")
+		}
+	} else if cmd.Op == "worktree" {
+		repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime)
+		repo.SetVerbose(cmd.Verbose)
+		w := vcs.NewWorktree(repo.GetRepo(), cmd.numFiles, cmd.filesPerDir, cmd.dirsPerDir, cmd.fileSize)
+		w.SetVerbose(cmd.Verbose)
+
+		status := gsos.NewPeriodicStatus(cmd.startTime, 20*time.Millisecond, 0)
+		fn := func(cb *vcs.WorktreeCallbackData) bool {
+			if cmd.Abort {
+				return true
+			}
+			if !cb.Done && !status.Ready() {
+				return false
+			}
+			fnamedisp := cb.Path
+			if len(fnamedisp) > 39 {
+				fnamedisp = cb.Path[:18]+"..." + cb.Path[len(cb.Path)-18:]
+			}
+			status.Show(fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, fnamedisp))
+			if cb.Done {
+				fmt.Fprintf(os.Stderr, "\n")
+			}
+			return false
+		}
+
+		if !w.Generate(fn) {
+			log.Fatalf("Couldn't put files in worktree\n")
 		}
 	} else {
 		log.Fatalf("Unknown op: %s\n", cmd.Op)
@@ -76,21 +112,29 @@ type Command struct {
 	// Op is what we are doing (create, add, ...)
 	Op string
 
-	// Dest points to our working area
-	Dest string
-
 	// Vcs is the name of the version control system to test
 	Vcs string
 
-	// Repo is the path to the repo to work on
+	// Dest points to our working area
+	Dest string
+
+	// Repo is the path to the repo to work on (inside Dest)
 	Repo string
+
+	// Worktree parameters
+	numFiles int
+	filesPerDir int
+	dirsPerDir int
+	fileSize int
 
 	Help    bool
 	Verbose bool
+	Abort bool
 
 	// remaining command-line arguments
 	args []string
 	print bool
+	startTime time.Time
 }
 
 func usage(fail int) {
@@ -121,32 +165,26 @@ func (cmd *Command) parse() []string {
 			cmd.args = append(cmd.args[:i], append(response, cmd.args[i:]...)...)
 			return true
 		}
-		parsearg := func(opt string, val *string) bool {
-			optlen := len(opt)
-			if len(arg) <= optlen || arg[:optlen] != opt {
-				return false
-			}
-			*val = arg[optlen:]
-			return true
-		}
-		parsebool := func(opt string, val *bool) bool {
-			if arg != opt {
-				return false
-			}
-			*val = true
-			return true
-		}
+
+		parseint := func(opt string, val *int) bool { return ParseIntArg(arg, opt, val) }
+		parsestr := func(opt string, val *string) bool { return ParseStrArg(arg, opt, val) }
+		parsebool := func(opt string, val *bool) bool { return ParseBoolArg(arg, opt, val) }
 
 		if !parsersp() &&
-		    !parsearg("--dest=", &cmd.Dest) &&
-		    !parsearg("--repo=", &cmd.Repo) &&
-			!parsearg("--op=", &cmd.Op) &&
-		    !parsearg("--vcs=", &cmd.Vcs) &&
+		    !parsestr("--dest=", &cmd.Dest) &&
+		    !parsestr("--repo=", &cmd.Repo) &&
+			!parsestr("--op=", &cmd.Op) &&
+		    !parsestr("--vcs=", &cmd.Vcs) &&
+		    !parseint("--worktree-file-count=", &cmd.numFiles) &&
+		    !parseint("--worktree-file-size=", &cmd.fileSize) &&
+		    !parseint("--files-per-dir=", &cmd.filesPerDir) &&
+		    !parseint("--dirs-per-dir=", &cmd.dirsPerDir) &&
 			!parsebool("--print", &cmd.print) &&
 			!parsebool("-v", &cmd.Verbose) &&
 			!parsebool("--verbose", &cmd.Verbose) &&
 			!parsebool("-h", &cmd.Help) &&
 			!parsebool("--help", &cmd.Help) {
+			fmt.Printf("Don't understand '%s'\n", arg)
 			usage(1)
 		}
 
@@ -168,6 +206,37 @@ func (cmd *Command) parse() []string {
 		fmt.Printf("exit cmd.args=%s\n", cmd.args[i:])
 	}
 	return cmd.args[i:]
+}
+
+func ParseIntArg(arg string, opt string, val *int) bool {
+	var strval string
+	if !ParseStrArg(arg, opt, &strval) {
+		return false
+	}
+
+	n, err := strconv.Atoi(strval)
+	if err != nil {
+		return false
+	}
+	*val = n
+	return true
+}
+
+func ParseStrArg(arg string, opt string, val *string) bool {
+	optlen := len(opt)
+	if len(arg) <= optlen || arg[:optlen] != opt {
+		return false
+	}
+	*val = arg[optlen:]
+	return true
+}
+
+func ParseBoolArg(arg string, opt string, val *bool) bool {
+	if arg != opt {
+		return false
+	}
+	*val = true
+	return true
 }
 
 // Given @<response-file>, open file <response-file> and add
