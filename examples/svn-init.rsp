@@ -1,0 +1,5 @@
+--dest=C:\projects\test
+--vcs=svn
+--repo=repo
+--op=create
+--op=remove

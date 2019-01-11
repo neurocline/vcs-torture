@@ -20,6 +20,7 @@ type Repo struct {
 	vcs string
 
 	repo string
+	server string // for client/server systems like Subversion
 
 	numCommits int
 	numHeadFiles int
@@ -28,13 +29,26 @@ type Repo struct {
 func NewRepo(dest string, repoName string, vcs string) *Repo {
 	r := &Repo{dest: dest, repoName: repoName, vcs: vcs}
 	r.repo = filepath.Join(dest, repoName)
+	if r.vcs == "svn" {
+		r.server = fmt.Sprintf("file:///%s-svnrepo", r.repo)
+	}
 	r.startTime = time.Now()
 
 	return r
 }
 
+// DeleteRepo removes the repo (and associated data, e.g the actual repo
+// for Subversion operations).
+// TBD this is incredibly dangerous. We should probably write a
+// log file and check it so someone doesn't accidentally delete their
+// hard disk - we should only delete things we created. Suggest creating
+// a .vcs-torture file in the --dest dir and then refusing to do anything
+// if it doesn't exist, and only delete things mentioned in this file.
 func DeleteRepo(dest string, repoName string, vcs string) bool {
 	err := os.RemoveAll(filepath.Join(dest, repoName))
+	if err == nil && vcs == "svn" {
+		err = os.RemoveAll(filepath.Join(dest, repoName+"-svnrepo"))
+	}
 	return err == nil
 }
 
@@ -71,6 +85,12 @@ func (r *Repo) loadInfo() bool {
 
 	// Mercurial
 	if r.vcs == "hg" {
+		// Not supported yet
+		return false
+	}
+
+	// Subversion
+	if r.vcs == "svn" {
 		// Not supported yet
 		return false
 	}
@@ -116,6 +136,21 @@ func (r *Repo) createRepo() bool {
 		delta, stdout, stderr := RunHgCommand(r.repo, nil, "init")
 		if r.verbose {
 			fmt.Printf("T+%.2f: (elapsed=%.4f) hg init\n", time.Since(r.startTime).Seconds(), delta)
+			showStdoutStderr(stdout, stderr)
+		}
+	}
+
+	if r.vcs == "svn" {
+		// "svnadmin create"
+		delta, stdout, stderr := RunSvnadminCommand(r.dest, nil, "create", fmt.Sprintf("%s-svnrepo", r.repoName))
+		if r.verbose {
+			fmt.Printf("T+%.2f: (elapsed=%.4f) svnadmin create\n", time.Since(r.startTime).Seconds(), delta)
+			showStdoutStderr(stdout, stderr)
+		}
+		// "svn checkout"
+		delta, stdout, stderr = RunSvnCommand(r.dest, nil, "checkout", r.server, r.repo)
+		if r.verbose {
+			fmt.Printf("T+%.2f: (elapsed=%.4f) svnadmin create\n", time.Since(r.startTime).Seconds(), delta)
 			showStdoutStderr(stdout, stderr)
 		}
 	}
