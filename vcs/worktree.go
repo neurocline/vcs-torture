@@ -31,21 +31,27 @@ type Worktree struct {
 	dirplace []int
 }
 
-func NewWorktree(root string, numFiles int, filesPerDir int, dirsPerDir int, fileSize int) *Worktree {
-	if numFiles == 0 {
-		numFiles = 1000
+func NewWorktree(dest string, repo string, params OpParams) *Worktree {
+	root := filepath.Join(dest, repo)
+	w := &Worktree{root: root, numFiles: params.NumFiles, filesPerDir: params.FilesPerDir,
+		dirsPerDir: params.DirsPerDir, fileSize: params.FileSize}
+
+	// Set default values
+	if w.numFiles == 0 {
+		w.numFiles = 1000
 	}
-	if filesPerDir == 0 {
-		filesPerDir = 48
+	if w.filesPerDir == 0 {
+		w.filesPerDir = 48
 	}
-	if dirsPerDir == 0 {
-		dirsPerDir = 16
+	if w.dirsPerDir == 0 {
+		w.dirsPerDir = 16
 	}
-	if fileSize == 0 {
-		fileSize = 10000
+	if w.fileSize == 0 {
+		w.fileSize = 10000
 	}
-	w := &Worktree{root:root, numFiles: numFiles, filesPerDir: filesPerDir, dirsPerDir: dirsPerDir, fileSize: fileSize}
+
 	return w
+
 }
 
 func (w *Worktree) SetVerbose(verbose bool) {

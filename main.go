@@ -38,52 +38,18 @@ func (cmd *Command) Run() {
 		fmt.Printf("cmd: %+v\n", cmd)
 	}
 
-	cmd.mustHaveDest()
-	cmd.mustHaveRepo()
-	cmd.mustHaveVcs()
 	if cmd.Verbose {
 		fmt.Printf("op=%s\n", cmd.Op)
 	}
 
-	if cmd.Op == "create" {
-		repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime)
-		repo.SetVerbose(cmd.Verbose)
-		if !repo.Create() {
-			log.Fatalf("Couldn't create repo\n")
-		}
-	} else if cmd.Op == "remove" {
-		if !vcs.DeleteRepo(cmd.Dest, cmd.Repo, cmd.Vcs) {
-			log.Fatalf("Couldn't remove repo\n")
-		}
-	} else if cmd.Op == "worktree" {
-		repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime)
-		repo.SetVerbose(cmd.Verbose)
-		w := vcs.NewWorktree(repo.GetRepo(), cmd.numFiles, cmd.filesPerDir, cmd.dirsPerDir, cmd.fileSize)
-		w.SetVerbose(cmd.Verbose)
-
-		status := gsos.NewPeriodicStatus(cmd.startTime, 20*time.Millisecond, 0)
-		fn := func(cb *vcs.WorktreeCallbackData) bool {
-			if cmd.Abort {
-				return true
-			}
-			if !cb.Done && !status.Ready() {
-				return false
-			}
-			fnamedisp := cb.Path
-			if len(fnamedisp) > 39 {
-				fnamedisp = cb.Path[:18]+"..." + cb.Path[len(cb.Path)-18:]
-			}
-			status.Show(fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, fnamedisp))
-			if cb.Done {
-				fmt.Fprintf(os.Stderr, "\n")
-			}
-			return false
-		}
-
-		if !w.Generate(fn) {
-			log.Fatalf("Couldn't put files in worktree\n")
-		}
-	} else {
+	switch cmd.Op {
+	case "create":
+		cmd.OpCreate()
+	case "remove":
+		cmd.OpRemove()
+	case "worktree":
+		cmd.OpWorktree()
+	default:
 		log.Fatalf("Unknown op: %s\n", cmd.Op)
 	}
 }
@@ -108,6 +74,57 @@ func (cmd *Command) mustHaveVcs() {
 
 // ----------------------------------------------------------------------------------------------
 
+func (cmd *Command) OpCreate() {
+	cmd.mustHaveDest()
+	cmd.mustHaveRepo()
+	cmd.mustHaveVcs()
+
+	repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime)
+	repo.SetVerbose(cmd.Verbose)
+	if !repo.Create() {
+		log.Fatalf("Couldn't create repo\n")
+	}
+}
+
+func (cmd *Command) OpRemove() {
+	if !vcs.DeleteRepo(cmd.Dest, cmd.Repo, cmd.Vcs) {
+		log.Fatalf("Couldn't remove repo\n")
+	}
+}
+
+func (cmd *Command) OpWorktree() {
+	cmd.mustHaveDest()
+	cmd.mustHaveRepo()
+
+	w := vcs.NewWorktree(cmd.Dest, cmd.Repo, cmd.Params)
+	w.SetVerbose(cmd.Verbose)
+
+	status := gsos.NewPeriodicStatus(cmd.startTime, 20*time.Millisecond, 0)
+	fn := func(cb *vcs.WorktreeCallbackData) bool {
+		if cmd.Abort {
+			return true
+		}
+		if !cb.Done && !status.Ready() {
+			return false
+		}
+		fnamedisp := cb.Path
+		if len(fnamedisp) > 39 {
+			fnamedisp = cb.Path[:18]+"..." + cb.Path[len(cb.Path)-18:]
+		}
+		status.Show(fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, fnamedisp))
+		if cb.Done {
+			fmt.Fprintf(os.Stderr, "\n")
+		}
+		return false
+	}
+
+	if !w.Generate(fn) {
+		log.Fatalf("Couldn't put files in worktree\n")
+	}
+}
+
+// ----------------------------------------------------------------------------------------------
+
 type Command struct {
 	// Op is what we are doing (create, add, ...)
 	Op string
@@ -121,11 +138,8 @@ type Command struct {
 	// Repo is the path to the repo to work on (inside Dest)
 	Repo string
 
-	// Worktree parameters
-	numFiles int
-	filesPerDir int
-	dirsPerDir int
-	fileSize int
+	// Params is the set of Op values that can be set on the command-line
+	Params vcs.OpParams
 
 	Help    bool
 	Verbose bool
@@ -133,6 +147,7 @@ type Command struct {
 
 	// remaining command-line arguments
 	args []string
+
 	print bool
 	startTime time.Time
 }
@@ -175,10 +190,12 @@ func (cmd *Command) parse() []string {
 		    !parsestr("--repo=", &cmd.Repo) &&
 			!parsestr("--op=", &cmd.Op) &&
 		    !parsestr("--vcs=", &cmd.Vcs) &&
-		    !parseint("--worktree-file-count=", &cmd.numFiles) &&
-		    !parseint("--worktree-file-size=", &cmd.fileSize) &&
-		    !parseint("--files-per-dir=", &cmd.filesPerDir) &&
-		    !parseint("--dirs-per-dir=", &cmd.dirsPerDir) &&
+
+		    !parseint("--worktree-file-count=", &cmd.Params.NumFiles) &&
+		    !parseint("--worktree-file-size=", &cmd.Params.FileSize) &&
+		    !parseint("--files-per-dir=", &cmd.Params.FilesPerDir) &&
+		    !parseint("--dirs-per-dir=", &cmd.Params.DirsPerDir) &&
+
 			!parsebool("--print", &cmd.print) &&
 			!parsebool("-v", &cmd.Verbose) &&
 			!parsebool("--verbose", &cmd.Verbose) &&

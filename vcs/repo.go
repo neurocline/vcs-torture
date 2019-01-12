@@ -11,9 +11,19 @@ import (
 	"vcs-torture/gsos"
 )
 
+type OpParams struct {
+
+	// Worktree parameters
+	NumFiles int
+	FilesPerDir int
+	DirsPerDir int
+	FileSize int
+}
+
 type Repo struct {
 	verbose bool
 	startTime time.Time
+	maxCmdline int
 
 	dest string
 	repoName string
