@@ -6,49 +6,64 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"vcs-torture/gsos"
 )
 
-type OpParams struct {
-
-	// Worktree parameters
-	NumFiles int
-	FilesPerDir int
-	DirsPerDir int
-	FileSize int
+type RepoOptions struct {
+	NumCommits    int
+	AddsPerCommit int
+	FilesPerAdd   int
 }
 
 type Repo struct {
-	verbose bool
-	startTime time.Time
+	RepoOptions
+
+	verbose    bool
+	startTime  time.Time
 	maxCmdline int
 
-	dest string
+	dest     string
 	repoName string
-	vcs string
+	vcs      string
+	overhead float64
 
-	repo string
+	repo   string
 	server string // for client/server systems like Subversion
 
-	numCommits int
+	numCommits   int
 	numHeadFiles int
+
+	worktree *Worktree
 }
 
-func NewRepo(dest string, repoName string, vcs string, startTime time.Time) *Repo {
-	r := &Repo{dest: dest, repoName: repoName, vcs: vcs}
+func NewRepo(dest string, repoName string, vcs string, startTime time.Time, options RepoOptions) *Repo {
+	r := &Repo{dest: dest, repoName: repoName, vcs: vcs, RepoOptions: options}
 	r.repo = filepath.Join(dest, repoName)
 	if r.vcs == "svn" {
 		r.server = fmt.Sprintf("file:///%s-svnrepo", r.repo)
 	}
 	r.startTime = startTime
 
+	// Set up command line limit (these are puposely much lower than
+	// the real limits)
+	if runtime.GOOS == "windows" {
+		r.maxCmdline = 2000
+	} else {
+		r.maxCmdline = 8000
+	}
+
 	return r
 }
 
 func (r *Repo) GetRepo() string {
 	return r.repo
+}
+
+func (r *Repo) AddWorktree(options WorktreeOptions) {
+	r.worktree = NewWorktree(r.dest, r.repoName, options)
 }
 
 // DeleteRepo removes the repo (and associated data, e.g the actual repo
@@ -69,6 +84,8 @@ func DeleteRepo(dest string, repoName string, vcs string) bool {
 func (r *Repo) SetVerbose(verbose bool) {
 	r.verbose = true
 }
+
+// ----------------------------------------------------------------------------------------------
 
 // Create makes a new repo or gets information about an existing repo.
 func (r *Repo) Create() bool {
@@ -164,7 +181,7 @@ func (r *Repo) createRepo() bool {
 		// "svn checkout"
 		delta, stdout, stderr = RunSvnCommand(r.dest, nil, "checkout", r.server, r.repo)
 		if r.verbose {
-			fmt.Printf("T+%.2f: (elapsed=%.4f) svnadmin create\n", time.Since(r.startTime).Seconds(), delta)
+			fmt.Printf("T+%.2f: (elapsed=%.4f) svn checkout\n", time.Since(r.startTime).Seconds(), delta)
 			showStdoutStderr(stdout, stderr)
 		}
 	}
@@ -183,4 +200,86 @@ func showStdoutStderr(stdout []byte, stderr []byte) {
 			fmt.Printf("(stderr): %s\n", v)
 		}
 	}
+}
+
+// ----------------------------------------------------------------------------------------------
+
+type CommitCallbackData struct {
+	Done          bool
+	Commit        int
+	NumIndexFiles int
+	LooseObjects  int
+	PackObjects   int
+}
+
+func (r *Repo) Commit(callback func(cb *CommitCallbackData) bool) bool {
+	var cb CommitCallbackData
+
+	var deltaAdd float64
+	var sumAddTime float64
+	for cb.Commit = 1; cb.Commit <= r.NumCommits; cb.Commit++ {
+
+		// Add files for our commit
+		add := 0
+		for add < r.AddsPerCommit {
+			amt := r.FilesPerAdd
+			if add+amt > r.AddsPerCommit {
+				amt = r.AddsPerCommit - add
+			}
+			addList := r.getFileSubset(add, amt)
+			amt = len(addList)
+			deltaAdd = r.addFiles(addList) - r.overhead
+			sumAddTime += deltaAdd
+
+			add += amt
+		}
+	}
+
+	return true
+}
+
+// Get some files
+func (r *Repo) getFileSubset(pos, amt int) []string {
+	if pos+amt > len(r.worktree.Files) {
+		amt = len(r.worktree.Files) - pos
+	}
+	addList := make([]string, amt)
+	copy(addList, r.worktree.Files[pos:pos+amt])
+	return addList
+}
+
+// Do "git add" on this set of files. We may need to break this
+// up into more than one command-line invocation
+func (r *Repo) addFiles(addList []string) float64 {
+
+	var addElapsed float64
+	for start := 0; start < len(addList); {
+
+		filelist := make([]string, 0, 100)
+		cmdsize := 0
+
+		for i := start; i < len(addList); i++ {
+			path := addList[i]
+			if cmdsize+1+len(path) > r.maxCmdline {
+				break
+			}
+			filelist = append(filelist, path)
+			cmdsize += 1 + len(path)
+		}
+
+		// Add this subset
+		var delta float64
+		if r.vcs == "git" {
+			delta, _, _ = RunGitCommand(r.repo, nil, append([]string{"add"}, filelist...)...)
+		} else if r.vcs == "hg" {
+			delta, _, _ = RunHgCommand(r.repo, nil, append([]string{"add"}, filelist...)...)
+		} else if r.vcs == "svn" {
+			delta, _, _ = RunSvnCommand(r.repo, nil, append([]string{"add"}, filelist...)...)
+		}
+		addElapsed += delta
+
+		start += len(filelist)
+	}
+
+	return addElapsed
 }

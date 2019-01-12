@@ -15,43 +15,45 @@ import (
 // Worktree manages the files that can be added to a repository
 // This generates a consistent but unique pathname
 type Worktree struct {
-	verbose bool
+	WorktreeOptions
 
-	root string
-	numFiles int
-	filesPerDir int
-	dirsPerDir int
-	fileSize int
+	verbose		bool
+	root        string
 
 	nthUniqueName int
-	nthContent int
+	nthContent    int
 
-	files []string
-	dirs map[string]int
+	Files    []string
+	dirs     map[string]int
 	dirplace []int
 }
 
-func NewWorktree(dest string, repo string, params OpParams) *Worktree {
+type WorktreeOptions struct {
+	NumFiles    int
+	FilesPerDir int
+	DirsPerDir  int
+	FileSize    int
+}
+
+func NewWorktree(dest string, repo string, options WorktreeOptions) *Worktree {
 	root := filepath.Join(dest, repo)
-	w := &Worktree{root: root, numFiles: params.NumFiles, filesPerDir: params.FilesPerDir,
-		dirsPerDir: params.DirsPerDir, fileSize: params.FileSize}
+	w := &Worktree{root: root, WorktreeOptions: options}
 
 	// Set default values
-	if w.numFiles == 0 {
-		w.numFiles = 1000
+	if w.NumFiles == 0 {
+		w.NumFiles = 1000
 	}
-	if w.filesPerDir == 0 {
-		w.filesPerDir = 48
+	if w.FilesPerDir == 0 {
+		w.FilesPerDir = 48
 	}
-	if w.dirsPerDir == 0 {
-		w.dirsPerDir = 16
+	if w.DirsPerDir == 0 {
+		w.DirsPerDir = 16
 	}
-	if w.fileSize == 0 {
-		w.fileSize = 10000
+	if w.FileSize == 0 {
+		w.FileSize = 10000
 	}
 
 	return w
-
 }
 
 func (w *Worktree) SetVerbose(verbose bool) {
@@ -59,25 +61,25 @@ func (w *Worktree) SetVerbose(verbose bool) {
 }
 
 type WorktreeCallbackData struct {
-	Done bool
-	Pos int
+	Done     bool
+	Pos      int
 	NumFiles int
-	Path string
+	Path     string
 }
 
 func (w *Worktree) Generate(callback func(cb *WorktreeCallbackData) bool) bool {
-	w.files = make([]string, 0, w.numFiles)
+	w.Files = make([]string, 0, w.NumFiles)
 	w.dirs = make(map[string]int)
 
 	var cb WorktreeCallbackData
-	cb.NumFiles = w.numFiles
+	cb.NumFiles = w.NumFiles
 
 	// Create our directory generator
 	w.dirplace = make([]int, 1, 6)
 	w.dirplace[0] = 0
 
 	// Create the paths where we will put files
-	for cb.Pos = 0; cb.Pos < w.numFiles; cb.Pos++ {
+	for cb.Pos = 0; cb.Pos < w.NumFiles; cb.Pos++ {
 		fname := w.uniqueName()
 		dirpath := w.getDir()
 
@@ -95,13 +97,13 @@ func (w *Worktree) Generate(callback func(cb *WorktreeCallbackData) bool) bool {
 		}
 
 		// Make this file if it doesn't already exist
-		w.files = append(w.files, cb.Path)
+		w.Files = append(w.Files, cb.Path)
 
 		fpath := filepath.Join(w.root, cb.Path)
 		if _, err := os.Stat(fpath); err == nil {
 			w.nthContent += 1
 		} else {
-			content := w.makeContent(w.fileSize)
+			content := w.makeContent(w.FileSize)
 			err := ioutil.WriteFile(fpath, content, os.ModePerm)
 			if err != nil {
 				log.Fatalf("\nCouldn't write %s: %s\n", fpath, err)
@@ -129,7 +131,7 @@ func (w *Worktree) uniqueName() string {
 	// Make a unique name
 	var fragments []string
 	for nth >= 16 {
-		fragments = append(fragments, stringAtoms[nth % 16])
+		fragments = append(fragments, stringAtoms[nth%16])
 		nth >>= 4
 	}
 	fragments = append(fragments, stringAtoms[nth])
@@ -144,20 +146,20 @@ func (w *Worktree) getDir() string {
 
 	// Create current directory path
 	var dirparts []string
-	for i := len(w.dirplace) - 1; i > 0 ; i-- {
+	for i := len(w.dirplace) - 1; i > 0; i-- {
 		dirparts = append(dirparts, fmt.Sprintf("%c", w.dirplace[i]+'a'))
 	}
 	dirpath := strings.Join(dirparts, "/")
 
 	// increment for next time
-	incr := w.filesPerDir // for files, will drop to w.dirsPerDir after
+	incr := w.FilesPerDir // for files, will drop to w.dirsPerDir after
 	L := len(w.dirplace)
 	for i := 0; i < L; i++ {
 		w.dirplace[i] += 1
 		if w.dirplace[i] < incr {
 			break
 		}
-		incr = w.dirsPerDir
+		incr = w.DirsPerDir
 
 		w.dirplace[i] = 0
 		if L == i+1 {
@@ -176,6 +178,7 @@ var contentAtoms []string = []string{
 	"goto", "return", "range", "make", "byte", "var", "sizeof", "sink",
 	"[", "]", "(", ")", "append", "copy", ":=", "==",
 }
+
 func (w *Worktree) makeContent(size int) []byte {
 	nth := w.nthContent
 	w.nthContent += 1
@@ -195,7 +198,7 @@ func (w *Worktree) makeContent(size int) []byte {
 			content[i-1] = '\n'
 			col = 0
 		}
-		var token []byte = []byte(contentAtoms[nth & 31] + " ")
+		var token []byte = []byte(contentAtoms[nth&31] + " ")
 		nth = ((nth << 27) | (nth >> 5)) + nth + 13
 		L := len(token)
 		if i+L > size {

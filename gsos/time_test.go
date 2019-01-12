@@ -24,14 +24,14 @@ func TestHighresTime(t *testing.T) {
 	}
 	start := time.Now()
 	hiStart := HighresTime()
-	time.Sleep(500*time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	hiEnd := HighresTime()
 	end := time.Now()
 
 	hiresDeltaMs := (hiEnd - hiStart).Duration().Seconds() * 1000.0
 	osTimeDeltaMs := end.Sub(start).Seconds() * 1000.0
 
-	if math.Abs(hiresDeltaMs - osTimeDeltaMs) > 1.0 {
+	if math.Abs(hiresDeltaMs-osTimeDeltaMs) > 1.0 {
 		t.Errorf("HighresTime doesn't match time.Time: got %.2f, want close to %.2f", hiresDeltaMs, osTimeDeltaMs)
 	}
 }

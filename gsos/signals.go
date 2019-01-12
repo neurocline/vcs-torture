@@ -14,19 +14,19 @@ import (
 type CatchSignals struct {
 	Abort bool
 
-	sigs chan os.Signal
+	sigs   chan os.Signal
 	cancel bool
 }
 
 // Start capturing signals
-func (s *CatchSignals) Capture()  {
+func (s *CatchSignals) Capture() {
 	s.sigs = make(chan os.Signal, 1)
 	s.Abort = false
 	s.cancel = false
 
 	signal.Notify(s.sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func(s *CatchSignals) {
-		_ = <- s.sigs // change this if we care about which signal
+		_ = <-s.sigs // change this if we care about which signal
 		if !s.cancel {
 			s.Abort = true
 		}

@@ -49,6 +49,8 @@ func (cmd *Command) Run() {
 		cmd.OpRemove()
 	case "worktree":
 		cmd.OpWorktree()
+	case "commit":
+		cmd.OpCommit()
 	default:
 		log.Fatalf("Unknown op: %s\n", cmd.Op)
 	}
@@ -79,7 +81,7 @@ func (cmd *Command) OpCreate() {
 	cmd.mustHaveRepo()
 	cmd.mustHaveVcs()
 
-	repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime)
+	repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime, vcs.RepoOptions{})
 	repo.SetVerbose(cmd.Verbose)
 	if !repo.Create() {
 		log.Fatalf("Couldn't create repo\n")
@@ -96,7 +98,8 @@ func (cmd *Command) OpWorktree() {
 	cmd.mustHaveDest()
 	cmd.mustHaveRepo()
 
-	w := vcs.NewWorktree(cmd.Dest, cmd.Repo, cmd.Params)
+	wopt := vcs.WorktreeOptions{NumFiles: cmd.numFiles, FilesPerDir: cmd.filesPerDir, DirsPerDir: cmd.dirsPerDir, FileSize: cmd.fileSize }
+	w := vcs.NewWorktree(cmd.Dest, cmd.Repo, wopt)
 	w.SetVerbose(cmd.Verbose)
 
 	status := gsos.NewPeriodicStatus(cmd.startTime, 20*time.Millisecond, 0)
@@ -109,7 +112,7 @@ func (cmd *Command) OpWorktree() {
 		}
 		fnamedisp := cb.Path
 		if len(fnamedisp) > 39 {
-			fnamedisp = cb.Path[:18]+"..." + cb.Path[len(cb.Path)-18:]
+			fnamedisp = cb.Path[:18] + "..." + cb.Path[len(cb.Path)-18:]
 		}
 		status.Show(fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, fnamedisp))
 		if cb.Done {
@@ -120,6 +123,39 @@ func (cmd *Command) OpWorktree() {
 
 	if !w.Generate(fn) {
 		log.Fatalf("Couldn't put files in worktree\n")
+	}
+}
+
+func (cmd *Command) OpCommit() {
+	cmd.mustHaveDest()
+	cmd.mustHaveRepo()
+	cmd.mustHaveVcs()
+
+	ropt := vcs.RepoOptions{NumCommits: cmd.numCommits, AddsPerCommit: cmd.addsPerCommit, FilesPerAdd: cmd.filesPerAdd}
+	repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime, ropt)
+	repo.SetVerbose(cmd.Verbose)
+	wopt := vcs.WorktreeOptions{NumFiles: cmd.numFiles, FilesPerDir: cmd.filesPerDir, DirsPerDir: cmd.dirsPerDir, FileSize: cmd.fileSize }
+	repo.AddWorktree(wopt)
+
+	status := gsos.NewPeriodicStatus(cmd.startTime, 50*time.Millisecond, 0)
+	fn := func(cb *vcs.CommitCallbackData) bool {
+		if cmd.Abort {
+			return true
+		}
+		if !cb.Done && !status.Ready() {
+			return false
+		}
+		status.Show(fmt.Sprintf("commit=%d/%d files=%d loose=%d pack=%d",
+			cb.Commit, cb.NumIndexFiles, cb.LooseObjects, cb.PackObjects))
+
+		if cb.Done {
+			fmt.Fprintf(os.Stderr, "\n")
+		}
+		return false
+	}
+
+	if !repo.Commit(fn) {
+		log.Fatalf("Failed commit\n")
 	}
 }
 
@@ -138,23 +174,31 @@ type Command struct {
 	// Repo is the path to the repo to work on (inside Dest)
 	Repo string
 
-	// Params is the set of Op values that can be set on the command-line
-	Params vcs.OpParams
+	// Worktree parameters
+	numFiles    int
+	filesPerDir int
+	dirsPerDir  int
+	fileSize    int
+
+	// commit params
+	numCommits int
+	addsPerCommit int
+	filesPerAdd int
 
 	Help    bool
 	Verbose bool
-	Abort bool
+	Abort   bool
 
 	// remaining command-line arguments
 	args []string
 
-	print bool
+	print     bool
 	startTime time.Time
 }
 
 func usage(fail int) {
 	fmt.Printf("Usage: vcs=torture [--vcs=<vcs-name>]\n" +
-		       "            [-v|--verbose] [-h|--help]\n")
+		"            [-v|--verbose] [-h|--help]\n")
 	os.Exit(fail)
 }
 
@@ -186,15 +230,19 @@ func (cmd *Command) parse() []string {
 		parsebool := func(opt string, val *bool) bool { return ParseBoolArg(arg, opt, val) }
 
 		if !parsersp() &&
-		    !parsestr("--dest=", &cmd.Dest) &&
-		    !parsestr("--repo=", &cmd.Repo) &&
+			!parsestr("--dest=", &cmd.Dest) &&
+			!parsestr("--repo=", &cmd.Repo) &&
 			!parsestr("--op=", &cmd.Op) &&
-		    !parsestr("--vcs=", &cmd.Vcs) &&
+			!parsestr("--vcs=", &cmd.Vcs) &&
 
-		    !parseint("--worktree-file-count=", &cmd.Params.NumFiles) &&
-		    !parseint("--worktree-file-size=", &cmd.Params.FileSize) &&
-		    !parseint("--files-per-dir=", &cmd.Params.FilesPerDir) &&
-		    !parseint("--dirs-per-dir=", &cmd.Params.DirsPerDir) &&
+			!parseint("--worktree-file-count=", &cmd.numFiles) &&
+			!parseint("--worktree-file-size=", &cmd.fileSize) &&
+			!parseint("--files-per-dir=", &cmd.filesPerDir) &&
+			!parseint("--dirs-per-dir=", &cmd.dirsPerDir) &&
+
+			!parseint("--num-commits=", &cmd.numCommits) &&
+			!parseint("--adds-per-commit=", &cmd.addsPerCommit) &&
+			!parseint("--files-per-add=", &cmd.filesPerAdd) &&
 
 			!parsebool("--print", &cmd.print) &&
 			!parsebool("-v", &cmd.Verbose) &&

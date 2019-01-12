@@ -67,15 +67,15 @@ var commandPaths map[string]string = make(map[string]string)
 // This is an alternative method-chaining style API
 
 type Command struct {
-	Exe string
-	ExePath string
+	Exe        string
+	ExePath    string
 	WorkingDir string
-	Env []string
-	Params []string
-	Stdin bytes.Buffer
-	Stdout bytes.Buffer
-	Stderr bytes.Buffer
-	Elapsed float64
+	Env        []string
+	Params     []string
+	Stdin      bytes.Buffer
+	Stdout     bytes.Buffer
+	Stderr     bytes.Buffer
+	Elapsed    float64
 
 	cmd *exec.Cmd
 }

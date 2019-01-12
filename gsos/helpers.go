@@ -62,15 +62,15 @@ func FileReadLines(path string) (lines []string, err error) {
 }
 
 type PeriodicStatus struct {
-	startTime time.Time
+	startTime  time.Time
 	lastStatus time.Time
-	delta time.Duration
-	cols int
+	delta      time.Duration
+	cols       int
 }
 
 func NewPeriodicStatus(startTime time.Time, delta time.Duration, cols int) *PeriodicStatus {
 	if delta <= 0 {
-		delta = 100*time.Millisecond
+		delta = 100 * time.Millisecond
 	}
 	if cols <= 0 {
 		cols = 100
