@@ -36,7 +36,7 @@ type Repo struct {
 	numCommits   int
 	numHeadFiles int
 
-	worktree *Worktree
+	Worktree *Worktree
 }
 
 func NewRepo(dest string, repoName string, vcs string, startTime time.Time, options RepoOptions) *Repo {
@@ -63,7 +63,7 @@ func (r *Repo) GetRepo() string {
 }
 
 func (r *Repo) AddWorktree(options WorktreeOptions) {
-	r.worktree = NewWorktree(r.dest, r.repoName, options)
+	r.Worktree = NewWorktree(r.dest, r.repoName, options)
 }
 
 // DeleteRepo removes the repo (and associated data, e.g the actual repo
@@ -213,44 +213,64 @@ type CommitCallbackData struct {
 }
 
 func (r *Repo) Commit(callback func(cb *CommitCallbackData) bool) bool {
+	//fmt.Printf("(*Repo).Commit\n")
 	var cb CommitCallbackData
 
-	var deltaAdd float64
 	var sumAddTime float64
+	var sumCommitTime float64
+	pos := 0
 	for cb.Commit = 1; cb.Commit <= r.NumCommits; cb.Commit++ {
 
 		// Add files for our commit
+		numToAdd := r.AddsPerCommit * r.FilesPerAdd
 		add := 0
-		for add < r.AddsPerCommit {
+		for add < numToAdd {
 			amt := r.FilesPerAdd
-			if add+amt > r.AddsPerCommit {
-				amt = r.AddsPerCommit - add
+			if add+amt > numToAdd {
+				amt = numToAdd - add
 			}
-			addList := r.getFileSubset(add, amt)
+			addList := r.getFileSubset(pos+add, amt)
 			amt = len(addList)
-			deltaAdd = r.addFiles(addList) - r.overhead
+			deltaAdd := r.addFiles(addList) - r.overhead
 			sumAddTime += deltaAdd
 
 			add += amt
+			cb.NumIndexFiles += amt
+			if callback != nil && callback(&cb) {
+				break
+			}
+		}
+
+		pos += add
+
+		// Now make the commit
+		deltaCommit := r.makeCommit(cb.Commit) - r.overhead
+		sumCommitTime += deltaCommit
+
+		if callback != nil && callback(&cb) {
+			break
 		}
 	}
 
-	return true
+	cb.Done = true
+	return callback == nil || !callback(&cb)
 }
 
 // Get some files
 func (r *Repo) getFileSubset(pos, amt int) []string {
-	if pos+amt > len(r.worktree.Files) {
-		amt = len(r.worktree.Files) - pos
+	//fmt.Printf("(*Repo).getFileSubset\n")
+	if pos+amt > len(r.Worktree.Files) {
+		amt = len(r.Worktree.Files) - pos
 	}
 	addList := make([]string, amt)
-	copy(addList, r.worktree.Files[pos:pos+amt])
+	copy(addList, r.Worktree.Files[pos:pos+amt])
 	return addList
 }
 
 // Do "git add" on this set of files. We may need to break this
 // up into more than one command-line invocation
 func (r *Repo) addFiles(addList []string) float64 {
+	//fmt.Printf("(*Repo).addFiles\n")
 
 	var addElapsed float64
 	for start := 0; start < len(addList); {
@@ -274,7 +294,7 @@ func (r *Repo) addFiles(addList []string) float64 {
 		} else if r.vcs == "hg" {
 			delta, _, _ = RunHgCommand(r.repo, nil, append([]string{"add"}, filelist...)...)
 		} else if r.vcs == "svn" {
-			delta, _, _ = RunSvnCommand(r.repo, nil, append([]string{"add"}, filelist...)...)
+			delta, _, _ = RunSvnCommand(r.repo, nil, append([]string{"add", "--parents" }, filelist...)...)
 		}
 		addElapsed += delta
 
@@ -282,4 +302,18 @@ func (r *Repo) addFiles(addList []string) float64 {
 	}
 
 	return addElapsed
+}
+
+// Do "git commit" on the current repo (which should have files added to it)
+func (r *Repo) makeCommit(n int) float64 {
+	//fmt.Printf("(*Repo).makeCommit\n")
+	var elapsed float64
+	if r.vcs == "git" {
+		elapsed, _, _ = RunGitCommand(r.repo, nil, "commit", "-m", fmt.Sprintf("commit %d", n))
+	} else if r.vcs == "hg" {
+		elapsed, _, _ = RunHgCommand(r.repo, nil, "commit", "-m", fmt.Sprintf("commit %d", n))
+	} else if r.vcs == "svn" {
+		elapsed, _, _ = RunSvnCommand(r.repo, nil, "commit", "-m", fmt.Sprintf("commit %d", n))
+	}
+	return elapsed
 }

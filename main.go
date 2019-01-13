@@ -108,7 +108,7 @@ func (cmd *Command) OpWorktree() {
 
 	cstatus := NewConsoleStatus().Throttle(100*time.Millisecond)
 	fn := func(cb *vcs.WorktreeCallbackData) bool {
-	    return cstatus.Ready() && cstatus.Output(
+	    return (cstatus.Ready() || cb.Done) && cstatus.Output(
 	        fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, cb.Path))
 	}
 
@@ -131,13 +131,22 @@ func (cmd *Command) OpCommit() {
 
 	// Make sure we have enough files in the worktree
 
+	wstatus := NewConsoleStatus().Throttle(100*time.Millisecond)
+	wfn := func(cb *vcs.WorktreeCallbackData) bool {
+	    return (wstatus.Ready() || cb.Done) && wstatus.Output(
+	        fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, cb.Path))
+	}
+
+	if !repo.Worktree.Generate(wfn) {
+		log.Fatalf("Couldn't put files in worktree\n")
+	}
 
 	// Now do the commits
 	cstatus := NewConsoleStatus().Throttle(50*time.Millisecond)
 	fn := func(cb *vcs.CommitCallbackData) bool {
 	    return cstatus.Ready() && cstatus.Output(
 	        fmt.Sprintf("commit=%d/%d files=%d loose=%d pack=%d",
-			cb.Commit, cb.NumIndexFiles, cb.LooseObjects, cb.PackObjects))
+			cb.Commit, cmd.numCommits, cb.NumIndexFiles, cb.LooseObjects, cb.PackObjects))
 	}
 
 	if !repo.Commit(fn) {
