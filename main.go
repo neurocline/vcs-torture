@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"strconv"
 	"time"
 
@@ -21,8 +22,11 @@ import (
 // main parses all the command-line arguments, running in
 // groups, one group for each distinct command
 func main() {
+	programStartTime = time.Now()
+	//fmt.Printf("Terminal width: %d\n", gsos.TerminalWidth())
+
 	cmd := &Command{args: os.Args[1:]}
-	cmd.startTime = time.Now()
+	cmd.startTime = programStartTime
 
 	for len(cmd.args) > 0 {
 		cmd.Op = ""
@@ -102,23 +106,10 @@ func (cmd *Command) OpWorktree() {
 	w := vcs.NewWorktree(cmd.Dest, cmd.Repo, wopt)
 	w.SetVerbose(cmd.Verbose)
 
-	status := gsos.NewPeriodicStatus(cmd.startTime, 20*time.Millisecond, 0)
+	cstatus := NewConsoleStatus().Throttle(100*time.Millisecond)
 	fn := func(cb *vcs.WorktreeCallbackData) bool {
-		if cmd.Abort {
-			return true
-		}
-		if !cb.Done && !status.Ready() {
-			return false
-		}
-		fnamedisp := cb.Path
-		if len(fnamedisp) > 39 {
-			fnamedisp = cb.Path[:18] + "..." + cb.Path[len(cb.Path)-18:]
-		}
-		status.Show(fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, fnamedisp))
-		if cb.Done {
-			fmt.Fprintf(os.Stderr, "\n")
-		}
-		return false
+	    return cstatus.Ready() && cstatus.Output(
+	        fmt.Sprintf("create %d/%d files: %s", cb.Pos, cb.NumFiles, cb.Path))
 	}
 
 	if !w.Generate(fn) {
@@ -134,24 +125,19 @@ func (cmd *Command) OpCommit() {
 	ropt := vcs.RepoOptions{NumCommits: cmd.numCommits, AddsPerCommit: cmd.addsPerCommit, FilesPerAdd: cmd.filesPerAdd}
 	repo := vcs.NewRepo(cmd.Dest, cmd.Repo, cmd.Vcs, cmd.startTime, ropt)
 	repo.SetVerbose(cmd.Verbose)
+
 	wopt := vcs.WorktreeOptions{NumFiles: cmd.numFiles, FilesPerDir: cmd.filesPerDir, DirsPerDir: cmd.dirsPerDir, FileSize: cmd.fileSize }
 	repo.AddWorktree(wopt)
 
-	status := gsos.NewPeriodicStatus(cmd.startTime, 50*time.Millisecond, 0)
-	fn := func(cb *vcs.CommitCallbackData) bool {
-		if cmd.Abort {
-			return true
-		}
-		if !cb.Done && !status.Ready() {
-			return false
-		}
-		status.Show(fmt.Sprintf("commit=%d/%d files=%d loose=%d pack=%d",
-			cb.Commit, cb.NumIndexFiles, cb.LooseObjects, cb.PackObjects))
+	// Make sure we have enough files in the worktree
 
-		if cb.Done {
-			fmt.Fprintf(os.Stderr, "\n")
-		}
-		return false
+
+	// Now do the commits
+	cstatus := NewConsoleStatus().Throttle(50*time.Millisecond)
+	fn := func(cb *vcs.CommitCallbackData) bool {
+	    return cstatus.Ready() && cstatus.Output(
+	        fmt.Sprintf("commit=%d/%d files=%d loose=%d pack=%d",
+			cb.Commit, cb.NumIndexFiles, cb.LooseObjects, cb.PackObjects))
 	}
 
 	if !repo.Commit(fn) {
@@ -313,4 +299,55 @@ func (p *Command) parseResponse(responsePath string) []string {
 	}
 
 	return args
+}
+
+// ----------------------------------------------------------------------------------------------
+
+// TBD: add custom render
+
+var programStartTime time.Time
+type ConsoleStatus struct {
+	startTime time.Time
+	lastStatus time.Time
+	period time.Duration
+	TermWidth int
+}
+
+func NewConsoleStatus() *ConsoleStatus {
+	width := gsos.TerminalWidth()
+	if width < 40 {
+		log.Fatalf("Bad terminal width: %d\n", width)
+	}
+	return &ConsoleStatus{
+		startTime: programStartTime,
+		lastStatus: time.Now(),
+		TermWidth: gsos.TerminalWidth(),
+		period: 50*time.Millisecond,
+	}
+}
+
+func (c *ConsoleStatus) Throttle(period time.Duration) *ConsoleStatus {
+	c.period = period
+	return c
+}
+
+func (c *ConsoleStatus) Ready() bool {
+	return time.Since(c.lastStatus) >= c.period
+}
+
+// Output writes the built status line to the terminal; it pads
+// the line to the terminal width, and truncates overlong lines
+// TermWidth is accessible to callers who want to do their
+// own truncation.
+func (c *ConsoleStatus) Output(out string) bool {
+	line := fmt.Sprintf("T+%.2f: %s", time.Since(c.startTime).Seconds(), out)
+	var pad string
+	if len(line) < c.TermWidth - 1 {
+		pad = strings.Repeat(" ", c.TermWidth - len(line) - 1)
+	} else {
+		line = line[:c.TermWidth-1]
+	}
+	fmt.Fprintf(os.Stderr, "\r%s%s", line, pad)
+	c.lastStatus = time.Now()
+	return false
 }

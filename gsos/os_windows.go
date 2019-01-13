@@ -45,12 +45,38 @@ func (t HighresTimestamp) Duration() time.Duration {
 // ------------------------
 
 var (
-	modKernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 )
 
 var (
-	procQueryPerformanceCounter   = modKernel32.NewProc("QueryPerformanceCounter")
-	procQueryPerformanceFrequency = modKernel32.NewProc("QueryPerformanceFrequency")
+	// QueryPerformanceCounter returns the current value of the performance counter,
+	// which could be TSC, or HPET, or the ACPI PMI timer
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms644904(v=vs.85).aspx
+	procQueryPerformanceCounter   = kernel32.NewProc("QueryPerformanceCounter")
+
+	// QueryPerformanceFrequency is the number of QPC clocks per second
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms644905(v=vs.85).aspx
+	procQueryPerformanceFrequency = kernel32.NewProc("QueryPerformanceFrequency")
+
+	// GetConsoleScreenBufferInfo retrieves information about the
+	// specified console screen buffer.
+	// http://msdn.microsoft.com/en-us/library/windows/desktop/ms683171(v=vs.85).aspx
+	procGetConsoleScreenBufferInfo = kernel32.NewProc("GetConsoleScreenBufferInfo")
+
+	// GetConsoleMode retrieves the current input mode of a console's
+	// input buffer or the current output mode of a console screen buffer.
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms683167(v=vs.85).aspx
+	//procGetConsoleMode = kernel32.NewProc("GetConsoleMode")
+
+	// SetConsoleMode sets the input mode of a console's input buffer
+	// or the output mode of a console screen buffer.
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms686033(v=vs.85).aspx
+	//procSetConsoleMode = kernel32.NewProc("SetConsoleMode")
+
+	// SetConsoleCursorPosition sets the cursor position in the
+	// specified console screen buffer.
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/ms686025(v=vs.85).aspx
+	//procSetConsoleCursorPosition = kernel32.NewProc("SetConsoleCursorPosition")
 )
 
 var qpcCounterFreq float64

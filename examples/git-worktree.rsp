@@ -1,9 +1,10 @@
 --dest=C:\projects\test
 --vcs=git
 --repo=repo
+--op=remove
 --op=create
---files-per-dir=48
+--files-per-dir=32
 --dirs-per-dir=16
---worktree-file-count=1000
---worktree-file-size=10000
+--worktree-file-count=5000
+--worktree-file-size=5000
 --op=worktree
