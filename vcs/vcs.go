@@ -1,4 +1,4 @@
-// vcs-torture/vcs/vcs.go
+// vcs-torture/vcs/cmd.go
 
 package vcs
 

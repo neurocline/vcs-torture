@@ -1,5 +1,5 @@
 --dest=C:\projects\test
---vcs=svn
+--vcs=hg
 --repo=repo
 --op=remove
 --op=create

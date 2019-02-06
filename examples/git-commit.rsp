@@ -5,10 +5,10 @@
 --op=create
 --files-per-dir=48
 --dirs-per-dir=16
---worktree-file-count=1000
+--worktree-file-count=100000
 --worktree-file-size=10000
 --op=worktree
---num-commits=10
---adds-per-commit=10
---files-per-add=10
+--num-commits=1000
+--adds-per-commit=1
+--files-per-add=100
 --op=commit
